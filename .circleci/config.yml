@@ -1,76 +1,72 @@
 version: 2.1
 
 orbs:
-  python: circleci/python@2.0.3
+  python: circleci/python@1.5.0
+  docker: circleci/docker@2.0.3
   heroku: circleci/heroku@1.2.6
-  win: circleci/windows@2.2.0
 
+jobs:
+  unittest-and-linter:
+    docker:
+      - image: cimg/python:3.10.2
+    steps:
+      - checkout
+      - run:
+          name: Install Python deps in a venv
+          command: |
+            python3 -m venv venv
+            . venv/bin/activate
+      - python/install-packages:
+          pkg-manager: pip
+      - run:
+          name: Unittests
+          command: python manage.py test
+      - run:
+          name: Linter
+          command: flake8 --max-line-length=99
+  
+  build-and-push-docker-image:
+    docker:
+      - image: cimg/python:3.10.2
+    steps:
+      - checkout
+      - setup_remote_docker
+      - run:
+          name: Build
+          command: |
+            echo $CIRCLE_SHA1 | docker login -u ${DOCKERHUB_USER} -p ${DOCKERHUB_PASS}
+            docker build -t ${DOCKERHUB_USER}/oc_lettings:$CIRCLE_SHA1 .
+            docker push ${DOCKERHUB_USER}/oc_lettings:$CIRCLE_SHA1
+  deploy-on-heroku:
+    executor: heroku/default
+    steps:
+      - checkout
+      - setup_remote_docker
+      - heroku/install
+      - run:
+          name: Deploy app on heroku
+          command: |
+            HEROKU_API_KEY=${HEROKU_API_KEY} heroku container:login
+            HEROKU_API_KEY=${HEROKU_API_KEY} heroku config:set SECRET_KEY=${SECRET_KEY} --app ${HEROKU_APP_NAME}
+            HEROKU_API_KEY=${HEROKU_API_KEY} heroku config:set DEBUG=${DEBUG} --app ${HEROKU_APP_NAME}
+            HEROKU_API_KEY=${HEROKU_API_KEY} heroku config:set SENTRY_DSN=${SENTRY_DSN} --app ${HEROKU_APP_NAME}
+            HEROKU_API_KEY=${HEROKU_API_KEY} heroku container:push web --app ${HEROKU_APP_NAME}
+            HEROKU_API_KEY=${HEROKU_API_KEY} heroku container:release web --app ${HEROKU_APP_NAME}
 workflows:
-  main_branch:
+  sample:
     jobs:
-      - tests:
+      - unittest-and-linter
+      - build-and-push-docker-image:
+          requires:
+            - unittest-and-linter
           filters:
             branches:
               only:
                 - main
-      - build-and-push-docker-image:
-          requires:
-            - tests
-      - heroku-deploy:
+      - deploy-on-heroku:
           requires:
             - build-and-push-docker-image
-
-  other_branches:
-    jobs:
-      - tests:
           filters:
             branches:
-              ignore:
+              only:
                 - main
-
-jobs:
-  tests:
-    executor: python/default
-    steps:
-      - checkout
-      - python/install-packages:
-          pkg-manager: pip
-      - run:
-          name: Run Django tests
-          command: pytest
-      - run:
-          name: linting
-          command: flake8
-
-  build-and-push-docker-image:
-    machine:
-      image: ubuntu-2004:202010-01
-
-    steps:
-      - checkout
-      - run:
-          name: Build Docker image
-          command: docker build -t $DOCKER_USER/oc-lettings-site:$CIRCLE_SHA1 .
-      - run:
-          name: Push Docker Image
-          command: |
-            echo $DOCKER_TOKEN | docker login -u $DOCKER_USER --password-stdin
-            docker tag $DOCKER_USER/oc-lettings-site:$CIRCLE_SHA1 $DOCKER_USER/oc-lettings-site:latest
-            docker push $DOCKER_USER/oc-lettings-site:$CIRCLE_SHA1
-            docker push $DOCKER_USER/oc-lettings-site:latest
-  heroku-deploy:
-    executor: heroku/default
-    steps:
-      - checkout
-      - heroku/install
-      - run: heroku maintenance:on -a $HEROKU_APP_NAME
-      - run: heroku config:set BUILD_NUMBER=$CIRCLE_BUILD_NUM -a $HEROKU_APP_NAME
-      - run: heroku config:set SECRET_KEY=$SECRET_KEY -a $HEROKU_APP_NAME
-      - run: heroku config:set SENTRY_DSN=$SENTRY_DSN -a $HEROKU_APP_NAME
-      - run: heroku config:set ADMIN_PASSWORD=$ADMIN_PASSWORD -a $HEROKU_APP_NAME
-      - run: heroku stack:set heroku-20 -a $HEROKU_APP_NAME
-      - run: heroku maintenance:off -a $HEROKU_APP_NAME
-      - heroku/deploy-via-git
-      - run: heroku run python manage.py -x migrate -a $HEROKU_APP_NAME
-      - run: heroku run python manage.py -x collectstatic --noinput -a $HEROKU_APP_NAME
-      - run: heroku run python manage.py -x init_sample_data -a $HEROKU_APP_NAME # (create superuser with orm, populate db...)
