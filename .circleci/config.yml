@@ -56,4 +56,17 @@ jobs:
       - run: heroku run python manage.py -x migrate -a $HEROKU_APP_NAME
       - run: heroku run python manage.py -x collectstatic --noinput -a $HEROKU_APP_NAME
       - run: heroku run python manage.py -x init_sample_data -a $HEROKU_APP_NAME # (create superuser with orm, populate db...)
-    
+    workflows:
+  main_branch:
+    jobs:
+      - tests:
+          filters:
+            branches:
+              only:
+                - main
+      - build-and-push-docker-image:
+          requires:
+            - tests
+      - heroku-deploy:
+          requires:
+            - build-and-push-docker-image
