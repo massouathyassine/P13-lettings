@@ -40,22 +40,23 @@ jobs:
             docker build -t ${DOCKERHUB_USER}/oc_lettings:$CIRCLE_SHA1 .
             docker push ${DOCKERHUB_USER}/oc_lettings:$CIRCLE_SHA1
 
-  deploy-on-heroku:
+  heroku-deploy:
     executor: heroku/default
     steps:
       - checkout
-      - setup_remote_docker
       - heroku/install
-      - run:
-          name: Deploy app on heroku
-          command: |
-            HEROKU_API_KEY=${HEROKU_API_KEY} heroku container:login
-            HEROKU_API_KEY=${HEROKU_API_KEY} heroku config:set SECRET_KEY=${SECRET_KEY} --app ${HEROKU_APP_NAME}
-            HEROKU_API_KEY=${HEROKU_API_KEY} heroku config:set DEBUG=${DEBUG} --app ${HEROKU_APP_NAME}
-            HEROKU_API_KEY=${HEROKU_API_KEY} heroku config:set SENTRY_DSN=${SENTRY_DSN} --app ${HEROKU_APP_NAME}
-            HEROKU_API_KEY=${HEROKU_API_KEY} heroku container:push web --app ${HEROKU_APP_NAME}
-            HEROKU_API_KEY=${HEROKU_API_KEY} heroku container:release web --app ${HEROKU_APP_NAME}
-
+      - run: heroku maintenance:on -a $HEROKU_APP_NAME
+      - run: heroku config:set BUILD_NUMBER=$CIRCLE_BUILD_NUM -a $HEROKU_APP_NAME
+      - run: heroku config:set SECRET_KEY=$SECRET_KEY -a $HEROKU_APP_NAME
+      - run: heroku config:set SENTRY_DSN=$SENTRY_DSN -a $HEROKU_APP_NAME
+      - run: heroku config:set ADMIN_PASSWORD=$ADMIN_PASSWORD -a $HEROKU_APP_NAME
+      - run: heroku stack:set heroku-20 -a $HEROKU_APP_NAME
+      - run: heroku maintenance:off -a $HEROKU_APP_NAME
+      - heroku/deploy-via-git
+      - run: heroku run python manage.py -x migrate -a $HEROKU_APP_NAME
+      - run: heroku run python manage.py -x collectstatic --noinput -a $HEROKU_APP_NAME
+      - run: heroku run python manage.py -x init_sample_data -a $HEROKU_APP_NAME # (create superuser with orm, populate db...)
+      
 workflows:
   sample:
     jobs:
