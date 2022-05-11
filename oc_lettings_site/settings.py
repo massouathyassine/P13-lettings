@@ -53,7 +53,7 @@ SECRET_KEY = get_secret_key()
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = get_debug()
 
-ALLOWED_HOSTS = ['p13-lettings.herokuapp.com', '127.0.0.1', 'localhost']
+ALLOWED_HOSTS = ['p13-letting-1.herokuapp.com', '127.0.0.1', 'localhost']
 
 
 # Application definition
